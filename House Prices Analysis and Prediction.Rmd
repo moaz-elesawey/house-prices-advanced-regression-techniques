@@ -1,0 +1,259 @@
+---
+title: "House Prices Analysis and Prediction"
+author: "Moaz M. El-Essawey"
+date: "April 2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading Packages and dataset
+```{r, warning=FALSE}
+library(tidyverse)
+
+train_df <- read_csv("./data/train.csv")
+head(train_df, 5)
+```
+```{r}
+glimpse(train_df)
+```
+
+# Wranlge train Dataset
+## Dropping NaN values
+I will drop any column contains more than 200 NaN value in it.
+and drop any non numeric column containing any NaN value.
+and fill any numeric column with NaN values less than 200 with it's mean.
+```{r}
+nan_cols <- train_df %>% is.na() %>% colSums()
+nan_cols <- nan_cols[nan_cols > 0]
+nan_cols
+```
+
+```{r}
+nan_cols_to_drop <- nan_cols[nan_cols >= 200]
+train_df <- train_df %>% select(-names(nan_cols_to_drop))
+
+nan_cols <- train_df %>% is.na() %>% colSums()
+nan_cols <- nan_cols[nan_cols > 0]
+nan_cols
+```
+
+```{r}
+non_numeric_nan_cols <- colnames(train_df %>% select(names(nan_cols)) %>%  select(where(is.character)))
+non_numeric_nan_cols
+
+
+train_df <- train_df %>% select(-non_numeric_nan_cols)
+train_df %>% head(5)
+```
+```{r}
+nan_cols <- train_df %>% is.na() %>% colSums()
+nan_cols[nan_cols > 0]
+```
+
+```{r}
+train_df <- train_df %>% replace_na(
+  list(MasVnrArea = mean(train_df$MasVnrArea, na.rm = TRUE),
+       GarageYrBlt = mean(train_df$GarageYrBlt, na.rm = TRUE))
+)
+
+nan_cols <- train_df %>% is.na() %>% colSums()
+nan_cols[nan_cols > 0]
+```
+
+Now our data frame does not contain any **NA** values. we can start working with and inspecting it's columns in details.
+
+## Inspecting Categorical Columns
+```{r}
+categorical_cols <- colnames(train_df %>% select(where(is.character)))
+numerical_cols <- colnames(train_df %>% select(where(is.numeric)))
+
+print("Categorical Columns")
+print(categorical_cols)
+print("Numerical Columns")
+print(numerical_cols)
+```
+### MSZoning Columns Analysis
+```{r}
+train_df %>% group_by(MSZoning) %>% summarise(counts=n())  %>% arrange(-counts)
+```
+
+**MSZoning** has a hig bias twards the **Residential Low Density** and **Residential Medium Density** zoning types.
+
+### HouseStyle Column Analysis
+```{r}
+train_df %>% group_by(HouseStyle) %>% summarise(counts=n())  %>% arrange(-counts)
+```
+
+**HouseStyle** has major proportions twards **One Story, Two Story** and **One and one-half story**: *2nd level unfinished*
+
+### SaleCondition Columns Analysis
+```{r}
+train_df %>% group_by(SaleCondition) %>% summarise(counts=n()) %>% arrange(-counts)
+```
+
+A House with **Normal** condition is dominated in selling condition.
+
+## Cleaning Categorical Columns
+
+```{r}
+train_df <- train_df %>% mutate(
+  low_density_zone = as.numeric(MSZoning == "RL"),
+  
+  one_story_type = as.numeric(HouseStyle == "1Story"),
+  two_story_type = as.numeric(HouseStyle == "2Story"),
+  half_story_type = as.numeric(HouseStyle == "1.5Fin"),
+  
+  normal_sale_cond = as.numeric(SaleCondition == "Normal"),
+  gas_heating_sys = as.numeric(Heating == "GasA"),
+  )
+
+train_df %>% select(
+  low_density_zone, one_story_type,two_story_type, half_story_type,
+  normal_sale_cond, gas_heating_sys
+) %>% head(5)
+```
+
+## Inscpecting Numerical Columns
+```{r}
+numerical_cols
+```
+
+### MSSubClass Column Analysis
+```{r}
+## convert MSSubClass to categorical column
+train_df <- train_df %>% mutate(MSSubClass = as.character(MSSubClass))
+
+train_df %>% group_by(MSSubClass) %>% 
+  summarise(counts=n()) %>% arrange(-counts) %>% 
+  ggplot(aes(x=MSSubClass, y=counts))+
+    geom_col()+
+    labs(
+      x="MSSubClass",
+      y="Count",
+      title="Count of each Class in MSSubClass"
+    )
+```
+
+most people prefer those types of houses
+**20** :  **1-STORY 1946 & NEWER ALL STYLES**
+**60** :  **2-STORY 1946 & NEWER**
+
+### YearBuild, YearRemodedAdd and YrSold Columns Analysis
+```{r}
+train_df %>% mutate(
+    time_taken_to_remodel = YearRemodAdd - YearBuilt,
+    time_taken_to_sold = YrSold - YearBuilt,
+    time_taken_to_sell_after_remodel = YrSold - YearRemodAdd) %>% 
+  
+  select(time_taken_to_remodel, time_taken_to_sold, time_taken_to_sell_after_remodel) %>% summary()
+```
+
+on average
+ - it took around **13 years** to remodel a house.
+ - it took around **36 years** to sell a house.
+ - it took around **22 years** to sell a house that is remodeled.
+
+### LotArea Column Analysis
+```{r warning=FALSE}
+print(train_df %>% select(LotArea) %>% summary)
+
+train_df %>% ggplot(aes(x=LotArea))+
+  geom_histogram(bins=40)+xlim(0, 50000)+
+  labs(
+    x="Lot Area",
+    y="Count",
+    title="Lot Area Dist."
+  )
+```
+
+Most of the houses has a **Lot Area** around **5,000 to 15,000** square feet
+
+### SalePrice Column Analysis
+```{r}
+print(train_df %>% select(SalePrice) %>% summary)
+
+train_df %>% ggplot(aes(x=SalePrice))+
+  geom_histogram(bins=40)+
+  labs(
+    x="Sale Price",
+    y="Count",
+    title="Sale Price Dist.")
+
+train_df %>% ggplot(aes(x=SalePrice))+
+  geom_boxplot()+
+  labs(
+    x="Sale Price",
+    y="Count",
+    title="Sale Price Dist.")
+```
+
+Most houses has price ranging between **1,000,000** to **2,500,000** USD.
+
+## Correlation Matrix in the Dataset
+```{r, fig.width=12, fig.height=11, fig.}
+##install.packages("ggcorrplot")
+library("ggcorrplot")
+corr <- cor(train_df %>% select(where(is.numeric)))
+corr[is.na(corr)] = 0
+
+ggcorrplot(corr, hc.order = TRUE, outline.color = "white")
+```
+
+### SalePrice vs OverallCond
+```{r}
+train_df %>% mutate(OverallCond = as.character(OverallCond)) %>% 
+  ggplot(aes(x=OverallCond, y=SalePrice, group=OverallCond))+
+    geom_boxplot()+
+    labs(
+      x="Overall Condition",
+      y="Sale Price",
+      title="Sale Price by House Condition"
+    )
+```
+
+### SalePrice vs TotalBsmtSF
+```{r message=FALSE}
+train_df %>% ggplot(aes(x=TotalBsmtSF, y=SalePrice))+
+  geom_point(alpha=0.7)+
+  geom_smooth(se=FALSE)
+```
+
+I detected an outliars at around more than **3,000** basement area, so i will choose to drop it.
+
+```{r, warning=FALSE, message=FALSE}
+train_df <- train_df %>% filter(TotalBsmtSF < 3000)
+
+train_df %>% ggplot(aes(x=TotalBsmtSF, y=SalePrice))+
+  geom_point(alpha=0.7)+
+  geom_smooth(se=FALSE)+
+  labs(
+    x="Total Basement Area in SF",
+    y="Sale Price",
+    title="Sale Price by Basement Area"
+  )
+
+```
+
+### SalePrice vs GrLivArea
+```{r, message=FALSE}
+
+train_df %>% ggplot(aes(x=GrLivArea, y=SalePrice))+
+  geom_point(alpha=0.7)+
+  geom_smooth(se=FALSE)+
+  labs(
+    x="Garden Area in SF",
+    y="Sale Price",
+    title="Sale Price by Garden Area"
+  )
+
+```
+
+Both **TotalBsmtArea** and **GrLivArea** have very **strong positive** correlation with **SalePrice** columns.
+
+# Machine Learning Models Analysis
+**Ongoing....**
